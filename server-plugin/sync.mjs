@@ -8,7 +8,7 @@ export const GITIGNORE_ENTRIES = ['secrets.json', 'git-sync.local.json', 'extens
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
 // simple-git rejects these variables as unsafe; Termux always sets PREFIX and VS Code sets GIT_ASKPASS.
-const DROPPED_ENV = /^(GIT_.*|SSH_ASKPASS|EDITOR|VISUAL|PAGER|PREFIX)$/;
+const DROPPED_ENV = /^(GIT_.*|SSH_ASKPASS|EDITOR|VISUAL|PAGER|PREFIX|LANGUAGE|LC_.*)$/;
 
 export function gitEnv(source = process.env) {
     const env = {};
@@ -18,6 +18,7 @@ export function gitEnv(source = process.env) {
         }
     }
     env.GIT_TERMINAL_PROMPT = '0';
+    env.LC_ALL = 'C'; // error matching below relies on English git output
     return env;
 }
 
@@ -158,7 +159,14 @@ function blockedResult(blocked) {
     return { pushed: false, updated: false, conflicts: [], ...blocked };
 }
 
+function requireInitialized(dir) {
+    if (!isInitialized(dir)) {
+        throw new Error('尚未初始化，請先按「初始化」');
+    }
+}
+
 export async function pull(dir, options) {
+    requireInitialized(dir);
     const { o, git, blocked } = await prepare(dir, options);
     const stop = blockedResult(blocked);
     if (stop) {
@@ -169,6 +177,7 @@ export async function pull(dir, options) {
 }
 
 export async function push(dir, options) {
+    requireInitialized(dir);
     const { o, git, blocked } = await prepare(dir, options);
     const stop = blockedResult(blocked);
     if (stop) {
@@ -180,7 +189,7 @@ export async function push(dir, options) {
     try {
         await git.raw(['push', url, refspec]);
     } catch (error) {
-        if (!/rejected|fetch first|non-fast-forward/i.test(String(error?.message))) {
+        if (!/fetch first|non-fast-forward|[rejected]/i.test(String(error?.message))) {
             throw error;
         }
         const retry = await syncDown(git, dir, o);

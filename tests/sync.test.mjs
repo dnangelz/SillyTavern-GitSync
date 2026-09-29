@@ -15,8 +15,8 @@ describe('authUrl', () => {
 });
 
 test('gitEnv drops variables simple-git treats as unsafe and disables prompts', () => {
-    const env = gitEnv({ PATH: '/bin', GIT_ASKPASS: 'x', SSH_ASKPASS: 'x', PREFIX: '/data', EDITOR: 'vi', HOME: '/h' });
-    expect(env).toEqual({ PATH: '/bin', HOME: '/h', GIT_TERMINAL_PROMPT: '0' });
+    const env = gitEnv({ PATH: '/bin', GIT_ASKPASS: 'x', SSH_ASKPASS: 'x', PREFIX: '/data', EDITOR: 'vi', HOME: '/h', LANGUAGE: 'zh_TW', LC_MESSAGES: 'zh_TW.UTF-8' });
+    expect(env).toEqual({ PATH: '/bin', HOME: '/h', GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C' });
 });
 
 test('git runs with the credential helper disabled even when the parent env has GIT_ASKPASS and PREFIX', async () => {
@@ -118,4 +118,16 @@ test('push with nothing new is a no-op that still succeeds', async () => {
     await initRepo(a, opts(remote, 'A'));
     const result = await push(a, opts(remote, 'A'));
     expect(result).toMatchObject({ pushed: true, updated: false, conflicts: [] });
+});
+
+test('pull and push refuse to run in a directory that is not initialized, even inside another repo', async () => {
+    const outer = tempDir();
+    const outerGit = simpleGit(outer);
+    await outerGit.raw(['init', '-b', 'main']);
+    write(outer, 'inner/data/x.txt', 'x');
+    const inner = path.join(outer, 'inner', 'data');
+    const remote = await makeRemote();
+    await expect(pull(inner, opts(remote, 'A'))).rejects.toThrow('尚未初始化，請先按「初始化」');
+    await expect(push(inner, opts(remote, 'A'))).rejects.toThrow('尚未初始化，請先按「初始化」');
+    await expect(outerGit.raw(['rev-parse', '--verify', '-q', 'HEAD']).catch(() => '')).resolves.toBe('');
 });
