@@ -2,7 +2,7 @@
 
 把 SillyTavern 使用者資料夾（角色卡、對話紀錄、群組、世界書、設定等）手動同步到 Git 私有倉庫，讓電腦與 Android 手機（Termux）共用同一份資料。衝突時會保留雙方版本，不會遺失資料。
 
-不會同步：`secrets.json`（API 金鑰）、`extensions/`、`thumbnails/`、`backups/`、`vectors/`。
+不會同步：`secrets.json`（API 金鑰）、`stats.json`（使用統計，由 SillyTavern 定期覆寫）、`extensions/`、`thumbnails/`、`backups/`、`vectors/`。
 
 ## 準備
 

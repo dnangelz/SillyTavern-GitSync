@@ -77,6 +77,7 @@ test('ignored files are never committed', async () => {
     const a = tempDir();
     write(a, 'secrets.json', '{"k":"v"}');
     write(a, 'git-sync.local.json', '{}');
+    write(a, 'stats.json', '{}');
     write(a, 'extensions/foo/index.js', 'x');
     write(a, 'thumbnails/t.png', 'x');
     write(a, 'backups/b.jsonl', 'x');

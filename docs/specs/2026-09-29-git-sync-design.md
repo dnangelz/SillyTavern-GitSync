@@ -75,6 +75,7 @@ SillyTavern-GitSync/
 ```
 secrets.json
 git-sync.local.json
+stats.json
 extensions/
 thumbnails/
 backups/

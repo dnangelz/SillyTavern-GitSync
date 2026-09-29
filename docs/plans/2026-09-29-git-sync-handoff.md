@@ -37,7 +37,7 @@
 
 ## 待使用者決定
 
-- **是否把 `stats.json` 加進 `.gitignore`？** SillyTavern 每 5 分鐘和關閉時都會覆寫它，所以只要兩台裝置都用過，每次同步都會多出一份 `stats (衝突 …).json`。建議加入；但這會改到 spec 裡明訂的清單，需要使用者同意。
+- ~~是否把 `stats.json` 加進 `.gitignore`？~~ **已完成**：使用者同意，已加入 `GITIGNORE_ENTRIES`，並同步更新 spec 與 README。此項不需再處理。
 
 ## 需要使用者在本機完成
 

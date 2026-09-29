@@ -4,7 +4,7 @@ import { simpleGit } from 'simple-git';
 import { findCaseCollisions } from './names.mjs';
 import { listConflicted, resolveConflicts } from './conflicts.mjs';
 
-export const GITIGNORE_ENTRIES = ['secrets.json', 'git-sync.local.json', 'extensions/', 'thumbnails/', 'backups/', 'vectors/'];
+export const GITIGNORE_ENTRIES = ['secrets.json', 'git-sync.local.json', 'stats.json', 'extensions/', 'thumbnails/', 'backups/', 'vectors/'];
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
 // simple-git rejects these variables as unsafe; Termux always sets PREFIX and VS Code sets GIT_ASKPASS.
