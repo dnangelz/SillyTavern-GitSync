@@ -1,7 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { initRepo, pull, push, status } from './sync.mjs';
+import { initRepo, pull, push, status, isInitialized } from './sync.mjs';
 import { readSettings, updateShared, updateLocal } from './config.mjs';
 import { defaultDeviceName, sanitizeDeviceName } from './names.mjs';
 import { redact } from './redact.mjs';
@@ -34,22 +34,45 @@ export function createRoutes(router, {
     hostname = os.hostname(),
     actions = { init: initRepo, pull, push },
     getStatus = status,
+    checkInitialized = isInitialized,
 } = {}) {
     const busy = new Set();
     const defaultDevice = defaultDeviceName(hostname);
 
-    function syncRoute(action) {
+    // Express 4 ignores rejected async handlers, so every handler goes through here.
+    function handle(fn) {
         return async (req, res) => {
+            const secrets = [];
+            try {
+                return await fn(req, res, secrets);
+            } catch (error) {
+                const message = friendlyMessage(redact(error?.message ?? String(error), secrets));
+                console.error('[git-sync]', message);
+                if (!res.headersSent) {
+                    return res.status(500).json({ error: message });
+                }
+            }
+        };
+    }
+
+    function syncRoute(action, { needsInit = true } = {}) {
+        return handle(async (req, res, secrets) => {
             const dirs = req.user.directories;
             const dir = dirs.root;
             const { readSecret } = await loadSecrets();
             const token = readSecret(dirs, TOKEN_KEY);
+            if (token) {
+                secrets.push(token);
+            }
             const settings = readSettings(dir, defaultDevice);
             if (!settings.repoUrl) {
                 return res.status(400).json({ error: '尚未設定倉庫 URL' });
             }
             if (!token) {
                 return res.status(400).json({ error: '尚未設定 Token' });
+            }
+            if (needsInit && !checkInitialized(dir)) {
+                return res.status(400).json({ error: '尚未初始化，請先按「初始化」' });
             }
             if (busy.has(dir)) {
                 return res.status(409).json({ error: '同步進行中，請稍候' });
@@ -66,31 +89,36 @@ export function createRoutes(router, {
                     updateLocal(dir, { lastSync: new Date().toISOString() });
                 }
                 return res.json({ ok: true, ...result });
-            } catch (error) {
-                const message = friendlyMessage(redact(error?.message ?? String(error), [token]));
-                console.error('[git-sync]', message);
-                return res.status(500).json({ error: message });
             } finally {
                 busy.delete(dir);
             }
-        };
+        });
     }
 
-    router.post('/status', async (req, res) => {
+    router.post('/status', handle(async (req, res) => {
         const dirs = req.user.directories;
         const { readSecret } = await loadSecrets();
         const settings = readSettings(dirs.root, defaultDevice);
         const st = await getStatus(dirs.root, settings.branch).catch(() => ({ initialized: false, pendingChanges: 0 }));
         return res.json({ ...settings, ...st, hasToken: Boolean(readSecret(dirs, TOKEN_KEY)) });
-    });
+    }));
 
-    router.post('/config', async (req, res) => {
+    router.post('/config', handle(async (req, res) => {
         const dirs = req.user.directories;
         const { repoUrl, branch, deviceName, token } = req.body ?? {};
         const shared = {};
         if (typeof repoUrl === 'string' && repoUrl.trim() !== '') {
-            if (!/^https:\/\//i.test(repoUrl.trim())) {
+            let parsed = null;
+            try {
+                parsed = new URL(repoUrl.trim());
+            } catch {
+                // handled below
+            }
+            if (!parsed || parsed.protocol !== 'https:') {
                 return res.status(400).json({ error: '倉庫 URL 必須以 https:// 開頭' });
+            }
+            if (parsed.username || parsed.password) {
+                return res.status(400).json({ error: '倉庫 URL 不可包含帳號或密碼，請改在 Token 欄位輸入' });
             }
             shared.repoUrl = repoUrl.trim();
         }
@@ -111,9 +139,9 @@ export function createRoutes(router, {
             writeSecret(dirs, TOKEN_KEY, token.trim());
         }
         return res.json({ ok: true });
-    });
+    }));
 
-    router.post('/init', syncRoute(actions.init));
+    router.post('/init', syncRoute(actions.init, { needsInit: false }));
     router.post('/pull', syncRoute(actions.pull));
     router.post('/push', syncRoute(actions.push));
 }

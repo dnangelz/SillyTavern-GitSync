@@ -1,17 +1,32 @@
 import { createRoutes, info, TOKEN_KEY } from '../server-plugin/index.mjs';
 import { readSettings } from '../server-plugin/config.mjs';
+import { jest } from '@jest/globals';
 import { tempDir } from './helpers.mjs';
 
-function setup(actions = {}) {
+beforeEach(() => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+});
+
+afterEach(() => {
+    jest.restoreAllMocks();
+});
+
+function setup(actions = {}, deps = {}) {
     const routes = {};
     const router = { post: (route, handler) => { routes[route] = handler; } };
     const store = {};
-    const loadSecrets = async () => ({
+    const loadSecrets = deps.loadSecrets ?? (async () => ({
         readSecret: (_dirs, key) => store[key] ?? '',
         writeSecret: (_dirs, key, value) => { store[key] = value; },
-    });
+    }));
     const ok = async () => ({ pushed: true, updated: false, conflicts: [], largeFiles: [], caseCollisions: [] });
-    createRoutes(router, { loadSecrets, hostname: 'MY-PC', actions: { init: ok, pull: ok, push: ok, ...actions } });
+    createRoutes(router, {
+        loadSecrets,
+        hostname: 'MY-PC',
+        checkInitialized: () => true,
+        actions: { init: ok, pull: ok, push: ok, ...actions },
+        ...deps,
+    });
     const dir = tempDir();
     const call = async (route, body = {}) => {
         const res = {
@@ -98,4 +113,33 @@ test('errors are redacted and auth failures get a friendly message', async () =>
 
     const denied = await call('/pull');
     expect(denied.body.error).toContain('驗證失敗');
+});
+
+test('a failing loadSecrets yields 500 instead of hanging', async () => {
+    const { call } = setup({}, { loadSecrets: async () => { throw new Error('cannot import secrets'); } });
+    for (const route of ['/status', '/config', '/push']) {
+        const res = await call(route, { token: 'x' });
+        expect(res.statusCode).toBe(500);
+        expect(res.body.error).toContain('cannot import secrets');
+    }
+});
+
+test('config rejects URLs with embedded credentials and saves nothing', async () => {
+    const { call, dir } = setup();
+    const res = await call('/config', { repoUrl: 'https://u:p@github.com/u/r.git', branch: 'dev' });
+    expect(res.statusCode).toBe(400);
+    expect(res.body.error).toContain('不可包含帳號或密碼');
+    expect(readSettings(dir, 'x').repoUrl).toBe('');
+    expect((await call('/config', { repoUrl: 'not a url' })).statusCode).toBe(400);
+});
+
+test('pull/push on an uninitialized folder return 400; init is still allowed', async () => {
+    const { call } = setup({}, { checkInitialized: () => false });
+    await call('/config', { repoUrl: 'https://github.com/u/r.git', token: 'tok' });
+    for (const route of ['/pull', '/push']) {
+        const res = await call(route);
+        expect(res.statusCode).toBe(400);
+        expect(res.body.error).toBe('尚未初始化，請先按「初始化」');
+    }
+    expect((await call('/init')).statusCode).toBe(200);
 });
