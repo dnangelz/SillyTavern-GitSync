@@ -1,0 +1,84 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { initRepo, pull, push } from '../server-plugin/sync.mjs';
+import { tempDir, makeRemote, write, read, opts } from './helpers.mjs';
+
+const COPY = 'chats/X/c (衝突 B 2026-09-29 1530).jsonl';
+
+async function twoDevices(files) {
+    const remote = await makeRemote();
+    const a = tempDir();
+    const b = tempDir();
+    for (const [rel, content] of Object.entries(files)) {
+        write(a, rel, content);
+    }
+    await initRepo(a, opts(remote, 'A'));
+    await initRepo(b, opts(remote, 'B'));
+    return { remote, a, b };
+}
+
+test('both edit the same chat: remote wins, local kept as a copy, copy reaches the other device', async () => {
+    const { remote, a, b } = await twoDevices({ 'chats/X/c.jsonl': 'base\n' });
+    write(a, 'chats/X/c.jsonl', 'base\nfromA\n');
+    await push(a, opts(remote, 'A'));
+    write(b, 'chats/X/c.jsonl', 'base\nfromB\n');
+
+    const result = await push(b, opts(remote, 'B'));
+
+    expect(result).toMatchObject({ pushed: true, updated: true, conflicts: ['chats/X/c.jsonl'] });
+    expect(read(b, 'chats/X/c.jsonl').toString()).toBe('base\nfromA\n');
+    expect(read(b, COPY).toString()).toBe('base\nfromB\n');
+    await pull(a, opts(remote, 'A'));
+    expect(read(a, COPY).toString()).toBe('base\nfromB\n');
+});
+
+test('binary conflict copy keeps the exact local bytes', async () => {
+    const { remote, a, b } = await twoDevices({ 'characters/Alice.png': Buffer.from([1, 2, 3]) });
+    write(a, 'characters/Alice.png', Buffer.from([0, 255, 10, 13, 0]));
+    await push(a, opts(remote, 'A'));
+    const local = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x00, 0xff]);
+    write(b, 'characters/Alice.png', local);
+
+    const result = await pull(b, opts(remote, 'B'));
+
+    expect(result.conflicts).toEqual(['characters/Alice.png']);
+    expect(read(b, 'characters/Alice (衝突 B 2026-09-29 1530).png')).toEqual(local);
+    expect(read(b, 'characters/Alice.png')).toEqual(Buffer.from([0, 255, 10, 13, 0]));
+});
+
+test('remote deleted, local edited: keep local, no copy', async () => {
+    const { remote, a, b } = await twoDevices({ 'chats/X/d.jsonl': 'v1\n' });
+    fs.rmSync(path.join(a, 'chats/X/d.jsonl'));
+    await push(a, opts(remote, 'A'));
+    write(b, 'chats/X/d.jsonl', 'v1\nlocal\n');
+
+    const result = await pull(b, opts(remote, 'B'));
+
+    expect(result.conflicts).toEqual([]);
+    expect(read(b, 'chats/X/d.jsonl').toString()).toBe('v1\nlocal\n');
+    expect(fs.readdirSync(path.join(b, 'chats/X'))).toEqual(['d.jsonl']);
+});
+
+test('local deleted, remote edited: remote version comes back', async () => {
+    const { remote, a, b } = await twoDevices({ 'chats/X/e.jsonl': 'v1\n' });
+    write(a, 'chats/X/e.jsonl', 'v1\nremote\n');
+    await push(a, opts(remote, 'A'));
+    fs.rmSync(path.join(b, 'chats/X/e.jsonl'));
+
+    const result = await pull(b, opts(remote, 'B'));
+
+    expect(result.conflicts).toEqual([]);
+    expect(read(b, 'chats/X/e.jsonl').toString()).toBe('v1\nremote\n');
+});
+
+test('second conflict in the same minute gets a numbered copy', async () => {
+    const { remote, a, b } = await twoDevices({ 'chats/X/c.jsonl': 'base\n' });
+    for (const round of [1, 2]) {
+        write(a, 'chats/X/c.jsonl', `base\nA${round}\n`);
+        await push(a, opts(remote, 'A'));
+        write(b, 'chats/X/c.jsonl', `base\nB${round}\n`);
+        await push(b, opts(remote, 'B'));
+    }
+    expect(read(b, COPY).toString()).toBe('base\nB1\n');
+    expect(read(b, 'chats/X/c (衝突 B 2026-09-29 1530 2).jsonl').toString()).toBe('base\nB2\n');
+});

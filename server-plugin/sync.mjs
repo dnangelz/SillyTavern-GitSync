@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { simpleGit } from 'simple-git';
 import { findCaseCollisions } from './names.mjs';
-import { listConflicted } from './conflicts.mjs';
+import { listConflicted, resolveConflicts } from './conflicts.mjs';
 
 export const GITIGNORE_ENTRIES = ['secrets.json', 'git-sync.local.json', 'extensions/', 'thumbnails/', 'backups/', 'vectors/'];
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
@@ -125,8 +125,9 @@ async function mergeRemote(git, dir, o) {
     }
     const conflicted = await listConflicted(git);
     if (conflicted.length > 0) {
-        await git.raw(['merge', '--abort']).catch(() => {});
-        throw new Error(`合併衝突：${conflicted.join(', ')}`);
+        const conflicts = await resolveConflicts(git, dir, o.deviceName, o.now);
+        await git.raw(['commit', '--no-edit']);
+        return { updated: true, conflicts };
     }
     if (mergeError) {
         await git.raw(['merge', '--abort']).catch(() => {});
