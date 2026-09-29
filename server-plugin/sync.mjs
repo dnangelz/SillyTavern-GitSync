@@ -27,7 +27,8 @@ export function gitFor(dir) {
     return simpleGit({
         baseDir: dir,
         config: ['credential.helper='],
-        timeout: { block: 120_000 },
+        // Only resets when git prints something, hence --progress on fetch/push.
+        timeout: { block: 300_000 },
         unsafe: { allowUnsafeCredentialHelper: true },
     }).env(gitEnv());
 }
@@ -65,7 +66,11 @@ async function applyRepoConfig(git, deviceName) {
         'core.quotePath': 'false',
         'user.name': deviceName,
         'user.email': 'git-sync@sillytavern.local',
+        'commit.gpgsign': 'false',
     };
+    if (process.platform === 'win32') {
+        settings['core.longpaths'] = 'true';
+    }
     for (const [key, value] of Object.entries(settings)) {
         await git.addConfig(key, value);
     }
@@ -106,7 +111,7 @@ async function commitAll(git, deviceName, now) {
 
 async function fetchRemote(git, url, branch) {
     try {
-        await git.raw(['fetch', url, `+refs/heads/${branch}:refs/remotes/origin/${branch}`]);
+        await git.raw(['fetch', '--progress', url, `+refs/heads/${branch}:refs/remotes/origin/${branch}`]);
         return true;
     } catch (error) {
         if (/couldn't find remote ref/i.test(String(error?.message))) {
@@ -150,9 +155,23 @@ async function syncDown(git, dir, o) {
     return mergeRemote(git, dir, o);
 }
 
+// A killed process can leave a half-finished merge whose conflict markers
+// would otherwise be committed by `add -A` and pushed to every device.
+async function abortStaleMerge(git, dir) {
+    const mergeHead = path.join(dir, '.git', 'MERGE_HEAD');
+    if (!fs.existsSync(mergeHead)) {
+        return;
+    }
+    await git.raw(['merge', '--abort']).catch(() => {});
+    if (fs.existsSync(mergeHead)) {
+        throw new Error('上次同步中斷，殘留未完成的合併且無法自動還原，請在資料夾中手動執行 git merge --abort');
+    }
+}
+
 async function prepare(dir, options) {
     const o = withDefaults(options);
     const git = gitFor(dir);
+    await abortStaleMerge(git, dir);
     await applyRepoConfig(git, o.deviceName);
     ensureGitignore(dir);
     const blocked = await checkPending(git, dir, o.maxFileBytes);
@@ -198,14 +217,14 @@ export async function push(dir, options) {
     const refspec = `HEAD:refs/heads/${o.branch}`;
     let down = await syncDown(git, dir, o);
     try {
-        await git.raw(['push', url, refspec]);
+        await git.raw(['push', '--progress', url, refspec]);
     } catch (error) {
         if (!isNonFastForward(String(error?.message))) {
             throw error;
         }
         const retry = await syncDown(git, dir, o);
         down = { updated: down.updated || retry.updated, conflicts: [...down.conflicts, ...retry.conflicts] };
-        await git.raw(['push', url, refspec]);
+        await git.raw(['push', '--progress', url, refspec]);
     }
     await git.raw(['update-ref', `refs/remotes/origin/${o.branch}`, 'HEAD']);
     return { pushed: true, ...down, largeFiles: [], caseCollisions: [] };

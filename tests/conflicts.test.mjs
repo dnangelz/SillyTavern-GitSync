@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { simpleGit } from 'simple-git';
 import path from 'node:path';
 import { initRepo, pull, push } from '../server-plugin/sync.mjs';
 import { tempDir, makeRemote, write, read, opts } from './helpers.mjs';
@@ -116,4 +117,42 @@ test('second conflict in the same minute gets a numbered copy', async () => {
     }
     expect(read(b, COPY).toString()).toBe('base\nB1\n');
     expect(read(b, 'chats/X/c (衝突 B 2026-09-29 1530 2).jsonl').toString()).toBe('base\nB2\n');
+});
+
+test('a merge interrupted after conflicts appeared is aborted and redone, never committed with markers', async () => {
+    const { remote, a, b } = await twoDevices({ 'chats/X/c.jsonl': 'base\n' });
+    write(a, 'chats/X/c.jsonl', 'base\nfromA\n');
+    await push(a, opts(remote, 'A'));
+    write(b, 'chats/X/c.jsonl', 'base\nfromB\n');
+    const git = simpleGit(b);
+    await git.raw(['add', '-A']);
+    await git.raw(['commit', '-m', 'local']);
+    await git.raw(['fetch', remote, '+refs/heads/main:refs/remotes/origin/main']);
+    await git.raw(['merge', '--no-edit', 'refs/remotes/origin/main']).catch(() => {});
+    expect(fs.existsSync(path.join(b, '.git', 'MERGE_HEAD'))).toBe(true);
+    expect(read(b, 'chats/X/c.jsonl').toString()).toContain('<<<<<<<');
+
+    const result = await push(b, opts(remote, 'B'));
+
+    expect(result).toMatchObject({ pushed: true, conflicts: ['chats/X/c.jsonl'] });
+    expect(read(b, 'chats/X/c.jsonl').toString()).toBe('base\nfromA\n');
+    expect(read(b, COPY).toString()).toBe('base\nfromB\n');
+    expect(fs.existsSync(path.join(b, '.git', 'MERGE_HEAD'))).toBe(false);
+    await pull(a, opts(remote, 'A'));
+    expect(read(a, 'chats/X/c.jsonl').toString()).not.toContain('<<<<<<<');
+});
+
+test('add/add: both devices have a different settings.json before initializing', async () => {
+    const remote = await makeRemote();
+    const a = tempDir();
+    const b = tempDir();
+    write(a, 'settings.json', '{"from":"A"}');
+    await initRepo(a, opts(remote, 'A'));
+    write(b, 'settings.json', '{"from":"B"}');
+
+    const result = await initRepo(b, opts(remote, 'B'));
+
+    expect(result).toMatchObject({ pushed: true, conflicts: ['settings.json'] });
+    expect(read(b, 'settings.json').toString()).toBe('{"from":"A"}');
+    expect(read(b, 'settings (衝突 B 2026-09-29 1530).json').toString()).toBe('{"from":"B"}');
 });
