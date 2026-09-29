@@ -46,7 +46,7 @@ async function refresh() {
 }
 
 async function runSync(route) {
-    const loader = showActionLoader({ message: 'Git 同步中…' });
+    const loader = showActionLoader({ message: 'Git 同步中…', toastMode: 'static' });
     let result;
     try {
         result = await call(route);
