@@ -7,6 +7,16 @@
 
 讓使用者把自己的 `data/<user>/` 資料夾（角色卡、對話紀錄、群組、世界書、設定等）以**手動**方式同步到一個 Git 私有倉庫，以便在多台裝置之間共用，且衝突時不遺失任何資料。
 
+主要情境：電腦（Windows）與 Android 手機（在 Termux 中執行 SillyTavern）之間同步。
+
+## 支援平台
+
+| 平台 | 需求 |
+|---|---|
+| Windows | Git for Windows |
+| Linux / macOS | 系統的 `git` |
+| Android（Termux） | `pkg install git` |
+
 ## 非目標
 
 - 自動 / 定時同步
@@ -78,7 +88,7 @@ vectors/
 | `/status` | — | `{ initialized, repoUrl, branch, deviceName, hasToken, lastSync, pendingChanges }` |
 | `/init` | — | `{ ok, conflicts: string[] }` |
 | `/pull` | — | `{ ok, conflicts: string[] }` |
-| `/push` | — | `{ ok, pushed: boolean, largeFiles: string[] }` |
+| `/push` | — | `{ ok, pushed: boolean, largeFiles: string[], caseCollisions: string[] }` |
 
 ## 資料流程
 
@@ -86,14 +96,20 @@ vectors/
 
 ### 初始化 `/init`
 
-1. 若 `.git` 不存在，執行 `git init -b <branch>`，寫入 `.gitignore`，設定 `origin`。
+1. 若 `.git` 不存在，執行 `git init -b <branch>`，寫入 `.gitignore`，設定 `origin`。接著寫入以下跨平台設定（倉庫層級，每次同步前也會重新套用一次）：
+   - `core.autocrlf=false`：各平台保存完全相同的位元組，避免 Windows 把 `.jsonl` 轉成 CRLF，造成每次同步都出現差異。
+   - `core.fileMode=false`：忽略 Android 與 Windows 之間的權限位元差異。
+   - `core.quotePath=false`：讓 `git status` 等指令的輸出直接顯示中文檔名，方便解析衝突檔案。
+   - `core.ignoreCase` 不修改（Git 官方不建議手動調整）。已知限制：若在 Android 上建立了只有大小寫不同的兩個檔案，Windows 無法同時保存。推送時會偵測這種情況，並列入 `caseCollisions` 警告。
 2. `git fetch`。
    - 遠端分支不存在（空倉庫）：`add -A` → commit → push。
    - 遠端分支已存在：本機先 commit，再依「拉取」流程合併（使用 `--allow-unrelated-histories`）。
 
 ### 推送 `/push`
 
-1. 檢查即將 commit 的檔案中是否有超過 50MB 者。若有，中止並在 `largeFiles` 列出。
+1. 檢查即將 commit 的檔案，發現以下情況時中止：
+   - 有檔案超過 50MB：列在 `largeFiles`。
+   - 有路徑只差在大小寫（Windows 無法同時保存）：列在 `caseCollisions`。
 2. `git add -A`；若有變更，commit，訊息為 `sync: <deviceName> <ISO 時間>`。
 3. 執行「拉取」流程（合併遠端變更）。
 4. `git push origin <branch>`。
@@ -121,11 +137,11 @@ vectors/
 
 在擴充功能設定面板新增「Git 同步」抽屜：
 
-- 欄位：倉庫 URL（HTTPS）、分支（預設 `main`）、裝置名稱（預設取主機名稱，由伺服器提供）、Token（密碼欄位，只能寫入；已設定時顯示「已設定」）
+- 欄位：倉庫 URL（HTTPS）、分支（預設 `main`）、裝置名稱（預設取 `os.hostname()`，由伺服器提供；若結果是 `localhost`（Android 上常見），則預設為 `android`。儲存前會移除 `\ / : * ? " < > |` 等字元，確保衝突副本的檔名在 Windows 上也合法）、Token（密碼欄位，只能寫入；已設定時顯示「已設定」）
 - 按鈕：「儲存設定」、「初始化」（尚未初始化時顯示）、「拉取」、「推送」
 - 狀態列：上次同步時間、本機未推送的變更數量
 - 拉取或初始化完成後：若 `conflicts` 不是空的，用 toastr 列出這些檔案；然後執行 `location.reload()`。
-- 推送回傳 `largeFiles` 時：顯示警告並列出這些檔案，建議加入 `.gitignore`。
+- 推送回傳 `largeFiles` 或 `caseCollisions` 時：顯示警告並列出這些檔案，建議加入 `.gitignore` 或重新命名。
 
 ## 錯誤處理
 
@@ -148,5 +164,10 @@ vectors/
 3. `secrets.json`、`extensions/foo/` 不會被 commit。
 4. `redact()` 會把 Token 從錯誤字串中移除。
 5. 超過 50MB 的檔案會被 `/push` 擋下並列在 `largeFiles` 中（測試時把門檻調小來模擬）。
+6. 只差在大小寫的路徑會列入 `caseCollisions`（以純函式測試偵測邏輯，不依賴檔案系統）。
+7. 初始化後，倉庫的 `core.autocrlf` 為 `false`。內容為 LF 的 `.jsonl` 在推送、拉取之後位元組不變。
+8. 裝置名稱淨化：`a:b/c?` 會轉成不含非法字元的名稱。
 
-手動驗收：啟動 SillyTavern，搭配 GitHub 私有倉庫，走完「初始化 → 另一個使用者目錄初始化 → 雙方修改 → 拉取與推送」整個流程，確認衝突副本會出現在對話清單中。
+手動驗收（使用 GitHub 私有倉庫）：
+- Windows 電腦與 Android 手機（Termux）各自初始化，接著雙方都修改，再分別拉取、推送。確認衝突副本會出現在兩邊的對話清單中。
+- 在手機上建立檔名含中文的角色卡與對話，同步到 Windows 後確認都能正常開啟。
