@@ -19,6 +19,7 @@ export function gitEnv(source = process.env) {
     }
     env.GIT_TERMINAL_PROMPT = '0';
     env.LC_ALL = 'C'; // error matching below relies on English git output
+    env.GIT_LITERAL_PATHSPECS = '1'; // file names like "Alice [v2].png" must not act as globs
     return env;
 }
 
@@ -125,9 +126,14 @@ async function mergeRemote(git, dir, o) {
     }
     const conflicted = await listConflicted(git);
     if (conflicted.length > 0) {
-        const conflicts = await resolveConflicts(git, dir, o.deviceName, o.now);
-        await git.raw(['commit', '--no-edit']);
-        return { updated: true, conflicts };
+        try {
+            const conflicts = await resolveConflicts(git, dir, o.deviceName, o.now);
+            await git.raw(['commit', '--no-edit']);
+            return { updated: true, conflicts };
+        } catch (error) {
+            await git.raw(['merge', '--abort']).catch(() => {});
+            throw error;
+        }
     }
     if (mergeError) {
         await git.raw(['merge', '--abort']).catch(() => {});

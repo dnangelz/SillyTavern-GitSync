@@ -71,6 +71,41 @@ test('local deleted, remote edited: remote version comes back', async () => {
     expect(read(b, 'chats/X/e.jsonl').toString()).toBe('v1\nremote\n');
 });
 
+test('file names with glob characters are matched literally', async () => {
+    const { remote, a, b } = await twoDevices({
+        'characters/Alice [v2].png': Buffer.from([1]),
+        'characters/Alice v.png': Buffer.from([9]),
+    });
+    write(a, 'characters/Alice [v2].png', Buffer.from([2, 2]));
+    await push(a, opts(remote, 'A'));
+    write(b, 'characters/Alice [v2].png', Buffer.from([3, 3, 3]));
+
+    const result = await pull(b, opts(remote, 'B'));
+
+    expect(result.conflicts).toEqual(['characters/Alice [v2].png']);
+    expect(read(b, 'characters/Alice [v2].png')).toEqual(Buffer.from([2, 2]));
+    expect(read(b, 'characters/Alice [v2] (衝突 B 2026-09-29 1530).png')).toEqual(Buffer.from([3, 3, 3]));
+    expect(read(b, 'characters/Alice v.png')).toEqual(Buffer.from([9]));
+});
+
+test('a failing merge commit aborts the merge and leaves the repo clean', async () => {
+    const { remote, a, b } = await twoDevices({ 'chats/X/c.jsonl': 'base\n' });
+    write(a, 'chats/X/c.jsonl', 'base\nfromA\n');
+    await push(a, opts(remote, 'A'));
+    write(b, 'chats/X/c.jsonl', 'base\nfromB\n');
+    const hook = path.join(b, '.git/hooks/commit-msg');
+    fs.writeFileSync(hook, '#!/bin/sh\ngrep -q "^Merge" "$1" && { echo "hook rejected merge commit" >&2; exit 1; }\nexit 0\n', { mode: 0o755 });
+
+    await expect(pull(b, opts(remote, 'B'))).rejects.toThrow();
+
+    expect(fs.existsSync(path.join(b, '.git/MERGE_HEAD'))).toBe(false);
+    expect(read(b, 'chats/X/c.jsonl').toString()).toBe('base\nfromB\n');
+    fs.rmSync(hook);
+    const retry = await pull(b, opts(remote, 'B'));
+    expect(retry.conflicts).toEqual(['chats/X/c.jsonl']);
+    expect(read(b, 'chats/X/c.jsonl').toString()).toBe('base\nfromA\n');
+});
+
 test('second conflict in the same minute gets a numbered copy', async () => {
     const { remote, a, b } = await twoDevices({ 'chats/X/c.jsonl': 'base\n' });
     for (const round of [1, 2]) {

@@ -16,7 +16,7 @@ describe('authUrl', () => {
 
 test('gitEnv drops variables simple-git treats as unsafe and disables prompts', () => {
     const env = gitEnv({ PATH: '/bin', GIT_ASKPASS: 'x', SSH_ASKPASS: 'x', PREFIX: '/data', EDITOR: 'vi', HOME: '/h', LANGUAGE: 'zh_TW', LC_MESSAGES: 'zh_TW.UTF-8' });
-    expect(env).toEqual({ PATH: '/bin', HOME: '/h', GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C' });
+    expect(env).toEqual({ PATH: '/bin', HOME: '/h', GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C', GIT_LITERAL_PATHSPECS: '1' });
 });
 
 test('git runs with the credential helper disabled even when the parent env has GIT_ASKPASS and PREFIX', async () => {
