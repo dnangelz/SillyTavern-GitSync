@@ -139,3 +139,11 @@ test('isNonFastForward matches push races only', () => {
     expect(isNonFastForward(' ! [remote rejected] main -> main (pre-receive hook declined)')).toBe(false);
     expect(isNonFastForward('fatal: Authentication failed')).toBe(false);
 });
+
+test('disables commit signing in the repo config', async () => {
+    const remote = await makeRemote();
+    const a = tempDir();
+    write(a, 'x.txt', 'x\n');
+    await initRepo(a, opts(remote, 'A'));
+    expect((await simpleGit(a).raw(['config', 'commit.gpgsign'])).trim()).toBe('false');
+});
