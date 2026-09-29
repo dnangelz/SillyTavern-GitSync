@@ -1,0 +1,10 @@
+.git_sync_settings .git_sync_buttons {
+    gap: 5px;
+    margin-top: 8px;
+}
+
+.git_sync_settings .git_sync_status {
+    margin-top: 6px;
+    font-size: 0.9em;
+    opacity: 0.8;
+}

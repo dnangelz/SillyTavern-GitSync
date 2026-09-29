@@ -1,0 +1,25 @@
+<div class="git_sync_settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>Git 同步</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <label for="git_sync_repo_url">倉庫 URL（HTTPS）</label>
+            <input id="git_sync_repo_url" class="text_pole" type="text" placeholder="https://github.com/you/your-data.git">
+            <label for="git_sync_branch">分支</label>
+            <input id="git_sync_branch" class="text_pole" type="text" placeholder="main">
+            <label for="git_sync_device">裝置名稱</label>
+            <input id="git_sync_device" class="text_pole" type="text">
+            <label for="git_sync_token">Token <small id="git_sync_token_state"></small></label>
+            <input id="git_sync_token" class="text_pole" type="password" autocomplete="off" placeholder="留空則不變更">
+            <div class="git_sync_buttons flex-container">
+                <div id="git_sync_save" class="menu_button">儲存設定</div>
+                <div id="git_sync_init" class="menu_button">初始化</div>
+                <div id="git_sync_pull" class="menu_button">拉取</div>
+                <div id="git_sync_push" class="menu_button">推送</div>
+            </div>
+            <div id="git_sync_status" class="git_sync_status"></div>
+        </div>
+    </div>
+</div>

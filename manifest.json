@@ -1,0 +1,11 @@
+{
+    "display_name": "Git Sync",
+    "loading_order": 100,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "dnangelz",
+    "version": "0.1.0",
+    "homePage": "https://github.com/dnangelz/SillyTavern-GitSync"
+}
