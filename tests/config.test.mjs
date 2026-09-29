@@ -29,3 +29,14 @@ test('treats a corrupt file as empty', () => {
     fs.writeFileSync(path.join(dir, 'git-sync.json'), '{not json');
     expect(readSettings(dir, 'PC').repoUrl).toBe('');
 });
+
+test('treats valid JSON that is not an object as empty', () => {
+    const dir = tempDir();
+    for (const content of ['null', '[1]', '"x"', '5']) {
+        fs.writeFileSync(path.join(dir, 'git-sync.json'), content);
+        expect(readSettings(dir, 'PC').repoUrl).toBe('');
+        updateShared(dir, { branch: 'dev' });
+        expect(readSettings(dir, 'PC').branch).toBe('dev');
+        fs.rmSync(path.join(dir, 'git-sync.json'));
+    }
+});

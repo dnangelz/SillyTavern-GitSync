@@ -6,7 +6,8 @@ export const LOCAL_FILE = 'git-sync.local.json';
 
 function readJson(file) {
     try {
-        return JSON.parse(fs.readFileSync(file, 'utf8'));
+        const value = JSON.parse(fs.readFileSync(file, 'utf8'));
+        return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {};
     } catch {
         return {};
     }
