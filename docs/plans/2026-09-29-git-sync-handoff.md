@@ -4,6 +4,26 @@
 
 測試方式：`npm install && npm test`，需要 Node ≥ 20 與系統的 `git`。
 
+## 處理進度（自動化執行）
+
+全部 53 個測試通過。
+
+必須修正：
+1. 已完成：`732e2b5`（prepare 開頭偵測並 abort 殘留的 MERGE_HEAD；此 commit 同時包含項目 2 在 `sync.mjs` 的變更與 gpgsign/longpaths）
+2. 已完成：`732e2b5`（fetch/push 加 `--progress`，block timeout 調為 300 秒）、`986844b`（`friendlyMessage` 的逾時中文訊息）
+3. 已完成：`4e9466d`（`toastMode: 'static'`）
+4. 已完成：`4aeb051`（README 改用 `~/gitsync`）
+5. 已完成：`4aeb051`（README 與 spec）
+
+建議一併修正：
+- `readJson` 非物件回傳 `{}`：已完成 `f1944c4`
+- add/add 衝突測試：已完成 `732e2b5`（現有行為即正確，測試直接通過）
+- `syncRoute` 重新驗證 repoUrl/branch：已完成 `986844b`
+- `commit.gpgsign=false` 與 Windows `core.longpaths=true`：已完成 `732e2b5`（測試 `9110aed`；longpaths 僅 Windows 生效，未有自動測試）
+- README 補充三項說明：已完成 `4aeb051`
+
+未處理：「待使用者決定」與本機手動驗收，依指示保留。
+
 ## 必須修正
 
 1. **合併中斷後，下一次同步會把衝突標記推到所有裝置**（`server-plugin/sync.mjs` 的 `prepare` / `commitAll`）
