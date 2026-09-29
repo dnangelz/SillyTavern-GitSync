@@ -57,21 +57,24 @@ SillyTavern-GitSync/
 
 - `index.mjs`：外掛進入點（`info`、`init(router)`、`exit`），只負責註冊路由。
 - `sync.mjs`：純 Git 邏輯，輸入為工作目錄路徑與設定，不依賴 Express，可單獨測試。
-  - `init(dir, opts)`、`status(dir)`、`pull(dir, opts)`、`push(dir, opts)`
+  - `initRepo(dir, opts)`、`status(dir, branch)`、`pull(dir, opts)`、`push(dir, opts)`
 - `conflicts.mjs`：衝突解決（採用雲端版本、本機版本另存為副本）。
+- `names.mjs`：純函式，包含裝置名稱淨化、衝突副本檔名、大小寫衝突偵測。
+- `config.mjs`：讀寫 `git-sync.json` 與 `git-sync.local.json`。
 - `redact.mjs`：將字串中的 Token 遮蔽。
 
 ## 資料位置
 
 - Git 工作目錄：`data/<user>/`（即 `request.user.directories.root`），每位使用者一個倉庫。
 - 外掛設定：`data/<user>/git-sync.json`，內容為 `{ repoUrl, branch }`，會一併同步。
-- 裝置名稱：因各裝置不同，存在 `data/<user>/.git/git-sync-device`（不會被同步）。
+- 各裝置自己的狀態：`data/<user>/git-sync.local.json`，內容為 `{ deviceName, lastSync }`。已列入 `.gitignore`，不會被同步。
 - Token：用 `src/endpoints/secrets.js` 匯出的 `writeSecret` / `readSecret` 存取，key 為 `git_sync_token`，存於 `secrets.json`。
 
 ### `.gitignore`（初始化時寫入，若已存在則只補上缺少的項目）
 
 ```
 secrets.json
+git-sync.local.json
 extensions/
 thumbnails/
 backups/
@@ -86,13 +89,15 @@ vectors/
 |---|---|---|
 | `/config` | `{ repoUrl?, branch?, deviceName?, token? }` | `{ ok }`；`token` 只寫入不回傳 |
 | `/status` | — | `{ initialized, repoUrl, branch, deviceName, hasToken, lastSync, pendingChanges }` |
-| `/init` | — | `{ ok, conflicts: string[] }` |
-| `/pull` | — | `{ ok, conflicts: string[] }` |
-| `/push` | — | `{ ok, pushed: boolean, largeFiles: string[], caseCollisions: string[] }` |
+| `/init`、`/pull`、`/push` | — | `{ ok, pushed: boolean, updated: boolean, conflicts: string[], largeFiles: string[], caseCollisions: string[] }` |
+
+`updated` 表示這次同步有沒有從雲端拉到新的變更，前端據此決定要不要重新整理頁面。只要 `largeFiles` 或 `caseCollisions` 不是空的，同步就會在任何 commit 之前中止，且 `pushed=false`。
 
 ## 資料流程
 
 驗證方式：執行 fetch/push 時，把 Token 暫時嵌入 URL（`https://x-access-token:<token>@host/...`），直接當作指令參數傳入，**不**寫入 `.git/config`。remote `origin` 只存放不含 Token 的 URL。
+
+所有 git 指令都以 `-c credential.helper=` 和環境變數 `GIT_TERMINAL_PROMPT=0` 執行。這樣系統的 credential helper（例如 Windows 的 Git Credential Manager）就不會跳出登入視窗，也不會把 Token 存進系統的認證管理員。
 
 ### 初始化 `/init`
 
@@ -100,23 +105,27 @@ vectors/
    - `core.autocrlf=false`：各平台保存完全相同的位元組，避免 Windows 把 `.jsonl` 轉成 CRLF，造成每次同步都出現差異。
    - `core.fileMode=false`：忽略 Android 與 Windows 之間的權限位元差異。
    - `core.quotePath=false`：讓 `git status` 等指令的輸出直接顯示中文檔名，方便解析衝突檔案。
+   - `user.name=<deviceName>`、`user.email=git-sync@sillytavern.local`：確保在沒有設定 git 身分的全新裝置上也能 commit。
    - `core.ignoreCase` 不修改（Git 官方不建議手動調整）。已知限制：若在 Android 上建立了只有大小寫不同的兩個檔案，Windows 無法同時保存。推送時會偵測這種情況，並列入 `caseCollisions` 警告。
 2. `git fetch`。
    - 遠端分支不存在（空倉庫）：`add -A` → commit → push。
    - 遠端分支已存在：本機先 commit，再依「拉取」流程合併（使用 `--allow-unrelated-histories`）。
 
+### 事前檢查（拉取與推送都會執行）
+
+檢查即將 commit 的檔案，發現以下情況時中止：
+- 有檔案超過 50MB：列在 `largeFiles`。
+- 有路徑只差在大小寫（Windows 無法同時保存）：列在 `caseCollisions`。
+
 ### 推送 `/push`
 
-1. 檢查即將 commit 的檔案，發現以下情況時中止：
-   - 有檔案超過 50MB：列在 `largeFiles`。
-   - 有路徑只差在大小寫（Windows 無法同時保存）：列在 `caseCollisions`。
-2. `git add -A`；若有變更，commit，訊息為 `sync: <deviceName> <ISO 時間>`。
-3. 執行「拉取」流程（合併遠端變更）。
-4. `git push origin <branch>`。
+1. 事前檢查。
+2. 執行「拉取」流程（先 commit 本機變更，再合併遠端變更）。
+3. `git push origin <branch>`。
 
 ### 拉取 `/pull`
 
-1. 本機若有變更，先 commit（同上）。
+1. 事前檢查。本機若有變更就 commit，訊息為 `sync: <deviceName> <ISO 時間>`。
 2. `git fetch origin <branch>`。
 3. `git merge origin/<branch> --no-edit`。
 4. 若發生衝突，交由 `conflicts.mjs` 處理，對每個衝突檔案：
@@ -124,7 +133,8 @@ vectors/
    - 原路徑改用雲端版本（`git checkout --theirs <path>`）。若雲端已刪除該檔，則保留本機版本，不另存副本。
    - `git add` 上述檔案。
 5. 完成合併 commit，把衝突檔案清單記錄在回應的 `conflicts`。
-6. 在 `.git/git-sync-last` 寫入 `lastSync` 時間。
+6. 同步成功後，在 `git-sync.local.json` 寫入 `lastSync` 時間。
+7. 若本機已刪除、雲端卻有修改，採用雲端版本（檔案會回來，不會遺失資料）。
 
 `.jsonl` 對話的衝突副本會出現在該角色的對話清單中，成為另一段對話，因此不會遺失任何資料。
 
@@ -140,8 +150,8 @@ vectors/
 - 欄位：倉庫 URL（HTTPS）、分支（預設 `main`）、裝置名稱（預設取 `os.hostname()`，由伺服器提供；若結果是 `localhost`（Android 上常見），則預設為 `android`。儲存前會移除 `\ / : * ? " < > |` 等字元，確保衝突副本的檔名在 Windows 上也合法）、Token（密碼欄位，只能寫入；已設定時顯示「已設定」）
 - 按鈕：「儲存設定」、「初始化」（尚未初始化時顯示）、「拉取」、「推送」
 - 狀態列：上次同步時間、本機未推送的變更數量
-- 拉取或初始化完成後：若 `conflicts` 不是空的，用 toastr 列出這些檔案；然後執行 `location.reload()`。
-- 推送回傳 `largeFiles` 或 `caseCollisions` 時：顯示警告並列出這些檔案，建議加入 `.gitignore` 或重新命名。
+- 同步完成後：若 `conflicts` 不是空的，先用彈出視窗列出這些檔案，等使用者按下確定；接著若 `updated` 為 true，執行 `location.reload()`。
+- 回傳 `largeFiles` 或 `caseCollisions` 時：顯示警告並列出這些檔案，建議加入 `.gitignore` 或重新命名。
 
 ## 錯誤處理
 
