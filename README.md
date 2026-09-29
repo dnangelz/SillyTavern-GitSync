@@ -22,8 +22,8 @@
 ```sh
 pkg install git
 cd ~/SillyTavern
-git clone https://github.com/dnangelz/SillyTavern-GitSync /tmp/gitsync
-cp -r /tmp/gitsync/server-plugin plugins/git-sync
+git clone https://github.com/dnangelz/SillyTavern-GitSync ~/gitsync
+cp -r ~/gitsync/server-plugin plugins/git-sync
 sed -i 's/^enableServerPlugins: false/enableServerPlugins: true/' config.yaml
 ```
 前端擴充一樣從 SillyTavern 介面安裝。
@@ -38,7 +38,15 @@ sed -i 's/^enableServerPlugins: false/enableServerPlugins: true/' config.yaml
 
 第一次同步前，請確認資料倉庫是私有的。Token 只存放在各裝置自己的 `secrets.json`，不會被同步。
 
-兩台裝置都修改了同一個檔案時，會採用雲端版本，本機版本另存為 `檔名 (衝突 裝置名 日期 時間).副檔名`。對話的衝突副本會出現在角色的對話清單中。
+兩台裝置都修改了同一個檔案時，會採用雲端版本，本機版本另存為 `檔名 (衝突 裝置名 日期 時間).副檔名`。
+
+- 角色對話（`chats/<角色>/`）的衝突副本會出現在該角色的對話清單中，成為另一段對話。
+- 群組對話（`group chats/`）的衝突副本**不會**出現在群組的對話清單中（清單來自 `groups/<id>.json` 的 `chats` 陣列），需要手動處理：把副本檔案的名稱（不含 `.jsonl`）加進該群組的 `chats`，或直接在資料夾中比對後刪除。
+- `groups/<id>.json` 的衝突副本會在介面中顯示為重複的群組，確認內容後刪除多餘的那一個即可。
+- 兩台裝置都修改過設定時，`settings.json` 會產生衝突副本（採用雲端版本，本機版本留在副本中）。
+- 兩台裝置都用同一張角色卡開新對話時，角色卡 PNG（內含對話資訊）會產生衝突副本。
+
+SillyTavern 的使用者資料備份 zip 會包含 `.git` 資料夾，檔案可能比預期大。
 
 ## 開發
 
