@@ -165,6 +165,10 @@ function requireInitialized(dir) {
     }
 }
 
+export function isNonFastForward(message) {
+    return /fetch first|non-fast-forward|\[rejected\]/i.test(message);
+}
+
 export async function pull(dir, options) {
     requireInitialized(dir);
     const { o, git, blocked } = await prepare(dir, options);
@@ -189,7 +193,7 @@ export async function push(dir, options) {
     try {
         await git.raw(['push', url, refspec]);
     } catch (error) {
-        if (!/fetch first|non-fast-forward|[rejected]/i.test(String(error?.message))) {
+        if (!isNonFastForward(String(error?.message))) {
             throw error;
         }
         const retry = await syncDown(git, dir, o);

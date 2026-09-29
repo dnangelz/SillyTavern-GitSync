@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { simpleGit } from 'simple-git';
-import { initRepo, pull, push, status, authUrl, gitEnv, gitFor } from '../server-plugin/sync.mjs';
+import { initRepo, pull, push, status, authUrl, gitEnv, gitFor, isNonFastForward } from '../server-plugin/sync.mjs';
 import { tempDir, makeRemote, write, read, opts } from './helpers.mjs';
 
 describe('authUrl', () => {
@@ -130,4 +130,11 @@ test('pull and push refuse to run in a directory that is not initialized, even i
     await expect(pull(inner, opts(remote, 'A'))).rejects.toThrow('尚未初始化，請先按「初始化」');
     await expect(push(inner, opts(remote, 'A'))).rejects.toThrow('尚未初始化，請先按「初始化」');
     await expect(outerGit.raw(['rev-parse', '--verify', '-q', 'HEAD']).catch(() => '')).resolves.toBe('');
+});
+
+test('isNonFastForward matches push races only', () => {
+    expect(isNonFastForward(' ! [rejected]        main -> main (fetch first)')).toBe(true);
+    expect(isNonFastForward('! [rejected] main -> main (non-fast-forward)')).toBe(true);
+    expect(isNonFastForward(' ! [remote rejected] main -> main (pre-receive hook declined)')).toBe(false);
+    expect(isNonFastForward('fatal: Authentication failed')).toBe(false);
 });
