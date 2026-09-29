@@ -23,10 +23,27 @@ function loadSillyTavernSecrets() {
 }
 
 function friendlyMessage(message) {
+    if (/block timeout reached/i.test(message)) {
+        return '同步逾時：網路太慢或資料量太大，請改用較穩定的網路後重試（已傳輸的部分不會遺失）。';
+    }
     if (AUTH_ERROR.test(message)) {
         return '驗證失敗：請確認 Token 正確，且擁有此倉庫的 Contents 讀寫權限。';
     }
     return message;
+}
+
+// git-sync.json is itself synced, so another device may have written anything into it.
+function validateSharedSettings({ repoUrl, branch }) {
+    let parsed = null;
+    try {
+        parsed = new URL(repoUrl);
+    } catch {
+        // handled below
+    }
+    if (!parsed || parsed.protocol !== 'https:' || parsed.username || parsed.password || !BRANCH_PATTERN.test(branch)) {
+        return 'git-sync.json 中的倉庫 URL 或分支不合法（必須是不含帳號密碼的 https:// 網址），請重新儲存設定';
+    }
+    return null;
 }
 
 export function createRoutes(router, {
@@ -70,6 +87,10 @@ export function createRoutes(router, {
             }
             if (!token) {
                 return res.status(400).json({ error: '尚未設定 Token' });
+            }
+            const invalid = validateSharedSettings(settings);
+            if (invalid) {
+                return res.status(400).json({ error: invalid });
             }
             if (needsInit && !checkInitialized(dir)) {
                 return res.status(400).json({ error: '尚未初始化，請先按「初始化」' });

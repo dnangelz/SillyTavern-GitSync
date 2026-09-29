@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { createRoutes, info, TOKEN_KEY } from '../server-plugin/index.mjs';
 import { readSettings } from '../server-plugin/config.mjs';
 import { jest } from '@jest/globals';
@@ -142,4 +144,33 @@ test('pull/push on an uninitialized folder return 400; init is still allowed', a
         expect(res.body.error).toBe('尚未初始化，請先按「初始化」');
     }
     expect((await call('/init')).statusCode).toBe(200);
+});
+
+test('block timeouts get a friendly Chinese message', async () => {
+    const stuck = async () => { throw new Error('block timeout reached'); };
+    const { call } = setup({ push: stuck });
+    await call('/config', { repoUrl: 'https://github.com/u/r.git', token: 'tok' });
+    const res = await call('/push');
+    expect(res.statusCode).toBe(500);
+    expect(res.body.error).toContain('逾時');
+});
+
+test('sync re-validates the synced git-sync.json before using it', async () => {
+    const action = jest.fn(async () => ({ pushed: true, updated: false, conflicts: [], largeFiles: [], caseCollisions: [] }));
+    const { call, dir } = setup({ push: action });
+    await call('/config', { repoUrl: 'https://github.com/u/r.git', token: 'tok' });
+    const file = path.join(dir, 'git-sync.json');
+    const bad = [
+        { repoUrl: 'http://evil.example/r.git', branch: 'main' },
+        { repoUrl: 'https://u:p@github.com/u/r.git', branch: 'main' },
+        { repoUrl: 'file:///etc', branch: 'main' },
+        { repoUrl: 'https://github.com/u/r.git', branch: '--upload-pack=evil' },
+    ];
+    for (const content of bad) {
+        fs.writeFileSync(file, JSON.stringify(content));
+        const res = await call('/push');
+        expect(res.statusCode).toBe(400);
+        expect(res.body.error).toContain('git-sync.json');
+    }
+    expect(action).not.toHaveBeenCalled();
 });
