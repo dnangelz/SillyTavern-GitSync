@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { normalizeCategories } from './categories.mjs';
 
 export const SHARED_FILE = 'git-sync.json';
 export const LOCAL_FILE = 'git-sync.local.json';
@@ -25,6 +26,7 @@ export function readSettings(dir, defaultDevice) {
         branch: shared.branch || 'main',
         deviceName: local.deviceName || defaultDevice,
         lastSync: local.lastSync ?? null,
+        categories: normalizeCategories(local.pushCategories),
     };
 }
 

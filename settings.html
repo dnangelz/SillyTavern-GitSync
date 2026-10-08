@@ -13,6 +13,16 @@
             <input id="git_sync_device" class="text_pole" type="text">
             <label for="git_sync_token">Token <small id="git_sync_token_state"></small></label>
             <input id="git_sync_token" class="text_pole" type="password" autocomplete="off" placeholder="留空則不變更">
+            <label>推送的類別（未勾選的這次不上傳）</label>
+            <div class="git_sync_categories">
+                <label class="checkbox_label"><input type="checkbox" class="git_sync_category" value="characters"><span>角色卡</span></label>
+                <label class="checkbox_label"><input type="checkbox" class="git_sync_category" value="chats"><span>角色聊天紀錄</span></label>
+                <label class="checkbox_label"><input type="checkbox" class="git_sync_category" value="groups"><span>群組與群組聊天</span></label>
+                <label class="checkbox_label"><input type="checkbox" class="git_sync_category" value="worlds"><span>世界書</span></label>
+                <label class="checkbox_label"><input type="checkbox" class="git_sync_category" value="settings"><span>設定與預設</span></label>
+                <label class="checkbox_label"><input type="checkbox" class="git_sync_category" value="media"><span>頭像、背景、素材</span></label>
+                <label class="checkbox_label"><input type="checkbox" class="git_sync_category" value="other"><span>其他</span></label>
+            </div>
             <div class="git_sync_buttons flex-container">
                 <div id="git_sync_save" class="menu_button">儲存設定</div>
                 <div id="git_sync_init" class="menu_button">初始化</div>

@@ -31,6 +31,7 @@ function renderStatus(s) {
     $('#git_sync_branch').val(s.branch);
     $('#git_sync_device').val(s.deviceName);
     $('#git_sync_token_state').text(s.hasToken ? '（已設定）' : '（未設定）');
+    $('.git_sync_category').each((_, box) => { box.checked = s.categories.includes(box.value); });
     $('#git_sync_init').toggle(!s.initialized);
     $('#git_sync_pull, #git_sync_push').toggle(Boolean(s.initialized));
     const last = s.lastSync ? new Date(s.lastSync).toLocaleString() : '從未';
@@ -45,11 +46,15 @@ async function refresh() {
     }
 }
 
+function selectedCategories() {
+    return $('.git_sync_category:checked').map((_, box) => box.value).get();
+}
+
 async function runSync(route) {
     const loader = showActionLoader({ message: 'Git 同步中…', toastMode: 'static' });
     let result;
     try {
-        result = await call(route);
+        result = await call(route, { categories: selectedCategories() });
     } catch (error) {
         toastr.error(error.message, 'Git 同步失敗');
         return;
@@ -93,6 +98,7 @@ jQuery(async () => {
                 branch: $('#git_sync_branch').val(),
                 deviceName: $('#git_sync_device').val(),
                 token: $('#git_sync_token').val(),
+                categories: selectedCategories(),
             });
             $('#git_sync_token').val('');
             toastr.success('設定已儲存');

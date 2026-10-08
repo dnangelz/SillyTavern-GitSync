@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { simpleGit } from 'simple-git';
 import { findCaseCollisions } from './names.mjs';
+import { categoryOf, ALL_CATEGORIES } from './categories.mjs';
 import { listConflicted, resolveConflicts } from './conflicts.mjs';
 
 export const GITIGNORE_ENTRIES = ['secrets.json', 'git-sync.local.json', 'stats.json', 'extensions/', 'thumbnails/', 'backups/', 'vectors/'];
@@ -77,7 +78,7 @@ async function applyRepoConfig(git, deviceName) {
 }
 
 function withDefaults(options) {
-    return { branch: 'main', token: '', deviceName: 'device', now: new Date(), maxFileBytes: MAX_FILE_BYTES, ...options };
+    return { branch: 'main', categories: ALL_CATEGORIES, token: '', deviceName: 'device', now: new Date(), maxFileBytes: MAX_FILE_BYTES, ...options };
 }
 
 async function headSha(git) {
@@ -85,21 +86,47 @@ async function headSha(git) {
     return out.trim();
 }
 
-async function checkPending(git, dir, maxFileBytes) {
+// Changed paths that belong to a selected category. Unselected changes stay in the working tree.
+async function selectedChanges(git, categories) {
+    const out = await git.raw(['status', '--porcelain=v1', '-z', '-uall', '--no-renames']);
+    return out.split('\0').filter(Boolean).map(entry => entry.slice(3)).filter(rel => categories.includes(categoryOf(rel)));
+}
+
+async function checkPending(git, dir, maxFileBytes, categories) {
     const st = await git.status();
+    const selected = new Set(await selectedChanges(git, categories));
     const largeFiles = st.files
         .map(file => file.path)
+        .filter(rel => selected.has(rel))
         .filter(rel => {
             const full = path.join(dir, rel);
             return fs.existsSync(full) && fs.statSync(full).isFile() && fs.statSync(full).size > maxFileBytes;
         });
     const tracked = (await git.raw(['ls-files', '-z'])).split('\0').filter(Boolean);
-    const caseCollisions = findCaseCollisions([...new Set([...tracked, ...st.not_added])]);
+    const caseCollisions = findCaseCollisions([...new Set([...tracked, ...st.not_added.filter(rel => selected.has(rel))])]);
     return { largeFiles, caseCollisions };
 }
 
-async function commitAll(git, deviceName, now) {
-    await git.raw(['add', '-A']);
+async function stageSelected(git, dir, categories) {
+    if (categories.length === ALL_CATEGORIES.length) {
+        return git.raw(['add', '-A']);
+    }
+    const files = await selectedChanges(git, categories);
+    if (files.length === 0) {
+        return;
+    }
+    // A file list avoids argv limits; GIT_LITERAL_PATHSPECS keeps names like "Alice [v2].png" literal.
+    const list = path.join(dir, '.git', 'git-sync-paths');
+    fs.writeFileSync(list, files.join('\0'));
+    try {
+        await git.raw(['add', '-A', `--pathspec-from-file=${list}`, '--pathspec-file-nul']);
+    } finally {
+        fs.rmSync(list, { force: true });
+    }
+}
+
+async function commitAll(git, dir, deviceName, now, categories) {
+    await stageSelected(git, dir, categories);
     const hasHead = (await headSha(git)) !== '';
     const staged = (await git.raw(['diff', '--cached', '--name-only', '-z'])).length > 0;
     if (hasHead && !staged) {
@@ -148,7 +175,7 @@ async function mergeRemote(git, dir, o) {
 }
 
 async function syncDown(git, dir, o) {
-    await commitAll(git, o.deviceName, o.now);
+    await commitAll(git, dir, o.deviceName, o.now, o.categories);
     if (!(await fetchRemote(git, authUrl(o.remoteUrl, o.token), o.branch))) {
         return { updated: false, conflicts: [] };
     }
@@ -174,7 +201,7 @@ async function prepare(dir, options) {
     await abortStaleMerge(git, dir);
     await applyRepoConfig(git, o.deviceName);
     ensureGitignore(dir);
-    const blocked = await checkPending(git, dir, o.maxFileBytes);
+    const blocked = await checkPending(git, dir, o.maxFileBytes, o.categories);
     return { o, git, blocked };
 }
 

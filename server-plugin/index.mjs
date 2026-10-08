@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { initRepo, pull, push, status, isInitialized } from './sync.mjs';
 import { readSettings, updateShared, updateLocal } from './config.mjs';
 import { defaultDeviceName, sanitizeDeviceName } from './names.mjs';
+import { ALL_CATEGORIES, normalizeCategories } from './categories.mjs';
 import { redact } from './redact.mjs';
 
 export const TOKEN_KEY = 'git_sync_token';
@@ -25,6 +26,9 @@ function loadSillyTavernSecrets() {
 function friendlyMessage(message) {
     if (/block timeout reached/i.test(message)) {
         return '同步逾時：網路太慢或資料量太大，請改用較穩定的網路後重試（已傳輸的部分不會遺失）。';
+    }
+    if (/would be overwritten by merge/i.test(message)) {
+        return '未勾選的類別有本機變更，且與雲端的版本重疊，無法合併。請勾選該類別後再同步。';
     }
     if (AUTH_ERROR.test(message)) {
         return '驗證失敗：請確認 Token 正確，且擁有此倉庫的 Contents 讀寫權限。';
@@ -81,6 +85,13 @@ export function createRoutes(router, {
             if (token) {
                 secrets.push(token);
             }
+            if (Array.isArray(req.body?.categories)) {
+                const categories = normalizeCategories(req.body.categories);
+                if (categories.length === 0) {
+                    return res.status(400).json({ error: '請至少勾選一個類別' });
+                }
+                updateLocal(dir, { pushCategories: categories });
+            }
             const settings = readSettings(dir, defaultDevice);
             if (!settings.repoUrl) {
                 return res.status(400).json({ error: '尚未設定倉庫 URL' });
@@ -105,6 +116,7 @@ export function createRoutes(router, {
                     branch: settings.branch,
                     token,
                     deviceName: settings.deviceName,
+                    categories: settings.categories,
                 });
                 if (result.largeFiles.length === 0 && result.caseCollisions.length === 0) {
                     updateLocal(dir, { lastSync: new Date().toISOString() });
@@ -121,12 +133,19 @@ export function createRoutes(router, {
         const { readSecret } = await loadSecrets();
         const settings = readSettings(dirs.root, defaultDevice);
         const st = await getStatus(dirs.root, settings.branch).catch(() => ({ initialized: false, pendingChanges: 0 }));
-        return res.json({ ...settings, ...st, hasToken: Boolean(readSecret(dirs, TOKEN_KEY)) });
+        return res.json({ ...settings, allCategories: ALL_CATEGORIES, ...st, hasToken: Boolean(readSecret(dirs, TOKEN_KEY)) });
     }));
 
     router.post('/config', handle(async (req, res) => {
         const dirs = req.user.directories;
-        const { repoUrl, branch, deviceName, token } = req.body ?? {};
+        const { repoUrl, branch, deviceName, token, categories } = req.body ?? {};
+        if (Array.isArray(categories)) {
+            const normalized = normalizeCategories(categories);
+            if (normalized.length === 0) {
+                return res.status(400).json({ error: '請至少勾選一個類別' });
+            }
+            updateLocal(dirs.root, { pushCategories: normalized });
+        }
         const shared = {};
         if (typeof repoUrl === 'string' && repoUrl.trim() !== '') {
             let parsed = null;

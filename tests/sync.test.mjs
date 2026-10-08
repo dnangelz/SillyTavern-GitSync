@@ -147,3 +147,33 @@ test('disables commit signing in the repo config', async () => {
     await initRepo(a, opts(remote, 'A'));
     expect((await simpleGit(a).raw(['config', 'commit.gpgsign'])).trim()).toBe('false');
 });
+
+test('push with a category subset uploads only those files and keeps the rest local', async () => {
+    const remote = await makeRemote();
+    const a = tempDir();
+    const b = tempDir();
+    write(a, 'chats/Alice/c1.jsonl', 'chat');
+    write(a, 'characters/Alice.png', 'card');
+    await initRepo(a, opts(remote, 'A', { categories: ['chats'] }));
+
+    await initRepo(b, opts(remote, 'B'));
+    expect(read(b, 'chats/Alice/c1.jsonl').toString()).toBe('chat');
+    expect(fs.existsSync(path.join(b, 'characters/Alice.png'))).toBe(false);
+    expect((await simpleGit(a).status()).not_added).toContain('characters/Alice.png');
+
+    await push(a, opts(remote, 'A'));
+    await pull(b, opts(remote, 'B'));
+    expect(read(b, 'characters/Alice.png').toString()).toBe('card');
+});
+
+test('pull with a category subset does not commit unselected changes', async () => {
+    const remote = await makeRemote();
+    const a = tempDir();
+    write(a, 'chats/c.jsonl', '1');
+    await initRepo(a, opts(remote, 'A'));
+    write(a, 'worlds/w.json', 'w');
+    write(a, 'chats/c.jsonl', '2');
+    await pull(a, opts(remote, 'A', { categories: ['chats'] }));
+    expect((await simpleGit(a).status()).not_added).toEqual(['worlds/w.json']);
+    expect((await simpleGit(a).raw(['show', 'HEAD:chats/c.jsonl']))).toBe('2');
+});
